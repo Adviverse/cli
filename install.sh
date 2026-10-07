@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
-# NOTE: confirm the public release host (GitHub Releases vs cdn.adviverse.com) before announcing; repo/owner may differ.
-# Install the adviverse CLI. Usage: curl -fsSL <url>/install.sh | sh
+# Install the adviverse CLI from GitHub Releases of Adviverse/cli.
+# Usage: curl -fsSL https://raw.githubusercontent.com/Adviverse/cli/main/install.sh | sh
 # Env: ADVIVERSE_CLI_REPO (owner/repo), ADVIVERSE_CLI_VERSION (default: latest), ADVIVERSE_BIN_DIR (default: /usr/local/bin)
 set -eu
-REPO="${ADVIVERSE_CLI_REPO:-Adviverse/adviverse-platform}"
+REPO="${ADVIVERSE_CLI_REPO:-Adviverse/cli}"
 BIN_DIR="${ADVIVERSE_BIN_DIR:-/usr/local/bin}"
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$os" in
