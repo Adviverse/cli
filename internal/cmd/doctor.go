@@ -207,7 +207,7 @@ func runDoctor(r *report, su *url.URL) {
 		r.line("ok", "Adviverse SDK script present once")
 	case n > 1:
 		r.line("fail", "Adviverse SDK script included %d times (include it exactly once)", n)
-	case spaRootRe.MatchString(html):
+	case spaRootRe.MatchString(html) || strings.Contains(html, `data-tag="tk_`):
 		r.line("warn", "SDK script not in server HTML; fine if rendered client-side (@adviverse/react), otherwise add serve.adviverse.com/sdk/v1.js")
 	default:
 		r.line("fail", "no Adviverse SDK script found (expected https://serve.adviverse.com/sdk/v1.js)")
@@ -261,7 +261,7 @@ func runDoctor(r *report, su *url.URL) {
 		case aresp.StatusCode == 204:
 			reason := aresp.Header.Get("X-Adviverse-NoFill")
 			if reason == "" {
-				reason = "no reason given"
+				reason = "no reason header: the request was treated as invalid traffic, usually because it came from a datacenter IP; run doctor from a normal connection"
 			}
 			r.line("warn", "tag %s: no fill (%s)", tag, reason)
 		default:
