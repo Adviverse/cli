@@ -1,0 +1,11 @@
+{
+  "name": "@adviverse/cli",
+  "version": "0.2.0",
+  "description": "Adviverse CLI: publisher properties, placements, plan/apply for adviverse.yaml, doctor, reports",
+  "bin": { "adviverse": "bin/adviverse.js" },
+  "files": ["bin", "README.md"],
+  "engines": { "node": ">=18" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Adviverse/cli" },
+  "homepage": "https://adviverse.com/guides"
+}
