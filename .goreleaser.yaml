@@ -4,7 +4,6 @@ builds:
   - main: .
     binary: adviverse
     env: [CGO_ENABLED=0]
-    ldflags: ["-s -w -X github.com/Adviverse/cli/internal/cmd.Version={{.Version}}"]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 archives:
