@@ -3,7 +3,7 @@ module github.com/Adviverse/cli
 go 1.26
 
 require (
-	github.com/Adviverse/go-sdk v0.3.0
+	github.com/Adviverse/go-sdk v0.5.0
 	github.com/spf13/cobra v1.8.1
 	gopkg.in/yaml.v3 v3.0.1
 )
