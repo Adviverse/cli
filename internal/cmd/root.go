@@ -111,7 +111,7 @@ func printRaw(cmd *cobra.Command, raw json.RawMessage) {
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{Use: "adviverse", Short: "Adviverse API command-line client", SilenceUsage: true}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "JSON output")
-	root.AddCommand(newLoginCmd(), newLogoutCmd(), newApiCmd(), newVersionCmd(),
+	root.AddCommand(newLoginCmd(), newLogoutCmd(), newSignupCmd(), newApiCmd(), newVersionCmd(),
 		newPropertiesCmd(), newAppsCmd(), newPlacementsCmd(), newCombosCmd(), newPlanCmd(), newApplyCmd(), newDoctorCmd())
 	addResourceCmds(root)
 	return root

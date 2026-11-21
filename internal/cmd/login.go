@@ -146,6 +146,9 @@ func newLoginCmd() *cobra.Command {
 				base = defaultBase
 			}
 			cfg := config{BaseURL: base}
+			if key == "" {
+				key = os.Getenv("ADVIVERSE_API_KEY") // agents: no prompt, no browser
+			}
 			if key == "-" || (key == "" && !stdinIsTTY()) {
 				fmt.Fprint(cmd.ErrOrStderr(), "API key: ")
 				line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
