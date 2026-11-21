@@ -1,7 +1,7 @@
 {
   "name": "@adviverse/cli",
-  "version": "0.2.0",
-  "description": "Adviverse CLI: publisher properties, placements, plan/apply for adviverse.yaml, doctor, reports",
+  "version": "0.4.0",
+  "description": "Adviverse CLI: browser login, publisher properties, apps, placements, plan/apply for adviverse.yaml, doctor, reports",
   "bin": { "adviverse": "bin/adviverse.js" },
   "files": ["bin", "README.md"],
   "engines": { "node": ">=18" },
