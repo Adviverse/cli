@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	adviverse "github.com/Adviverse/go-sdk"
 	"github.com/spf13/cobra"
@@ -20,6 +21,9 @@ func newClient() (*adviverse.Client, error) {
 		if cfg, err := loadConfig(); err == nil {
 			if key == "" {
 				key = cfg.APIKey
+				if key != "" && cfg.expired() {
+					fmt.Fprintf(os.Stderr, "warning: stored API key expired at %s; run `adviverse login` again\n", cfg.ExpiresAt)
+				}
 			}
 			if base == "" {
 				base = cfg.BaseURL
@@ -34,8 +38,16 @@ func newClient() (*adviverse.Client, error) {
 }
 
 type config struct {
-	APIKey  string `json:"api_key"`
-	BaseURL string `json:"base_url"`
+	APIKey    string `json:"api_key"`
+	BaseURL   string `json:"base_url"`
+	KeyID     string `json:"key_id,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"` // RFC 3339
+}
+
+// expired reports whether the stored key's expires_at is in the past.
+func (c config) expired() bool {
+	t, err := time.Parse(time.RFC3339, c.ExpiresAt)
+	return err == nil && time.Now().After(t)
 }
 
 func configPath() (string, error) {
@@ -71,6 +83,7 @@ func saveConfig(c config) error {
 	if err != nil {
 		return err
 	}
+	_ = os.Chmod(filepath.Dir(p), 0o700) // MkdirAll leaves an existing dir's mode alone
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		return err
 	}
@@ -98,7 +111,8 @@ func printRaw(cmd *cobra.Command, raw json.RawMessage) {
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{Use: "adviverse", Short: "Adviverse API command-line client", SilenceUsage: true}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "JSON output")
-	root.AddCommand(newLoginCmd(), newApiCmd())
+	root.AddCommand(newLoginCmd(), newLogoutCmd(), newApiCmd(), newVersionCmd(),
+		newPropertiesCmd(), newAppsCmd(), newPlacementsCmd(), newCombosCmd(), newPlanCmd(), newApplyCmd(), newDoctorCmd())
 	addResourceCmds(root)
 	return root
 }

@@ -136,22 +136,28 @@ func cspProblems(policy string) []string {
 }
 
 func newDoctorCmd() *cobra.Command {
-	var site string
+	var site, app string
 	c := &cobra.Command{
-		Use: "doctor", Short: "Check a site's Adviverse integration (SDK tag, CSP, ads.txt, placements)", Args: cobra.NoArgs,
+		Use: "doctor", Short: "Check a site's or app's Adviverse integration (SDK tag, CSP, ads.txt/app-ads.txt, placements)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if site == "" {
-				return fmt.Errorf("--site is required")
-			}
-			if !strings.Contains(site, "://") {
-				site = "https://" + site
-			}
-			su, err := url.Parse(site)
-			if err != nil || su.Host == "" {
-				return fmt.Errorf("invalid --site %q", site)
+			if (site == "") == (app == "") {
+				return fmt.Errorf("pass exactly one of --site or --app")
 			}
 			r := &report{w: cmd.OutOrStdout()}
-			runDoctor(r, su)
+			if app != "" {
+				if err := runAppDoctor(r, app); err != nil {
+					return err
+				}
+			} else {
+				if !strings.Contains(site, "://") {
+					site = "https://" + site
+				}
+				su, err := url.Parse(site)
+				if err != nil || su.Host == "" {
+					return fmt.Errorf("invalid --site %q", site)
+				}
+				runDoctor(r, su)
+			}
 			if r.fails > 0 {
 				cmd.SilenceErrors = true
 				return ExitCodeError{1}
@@ -160,6 +166,7 @@ func newDoctorCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&site, "site", "", "site URL to check (e.g. https://example.com)")
+	c.Flags().StringVar(&app, "app", "", "app id to check (verification, app-ads.txt, placements, test fill)")
 	return c
 }
 
@@ -252,21 +259,7 @@ func runDoctor(r *report, su *url.URL) {
 		}
 		seen[tag] = true
 		q := url.Values{"tag": {tag}, "client": {"web"}, "w": {"300"}, "h": {"250"}, "ac": {"0"}}
-		aresp, _, err := get(serveBase+"/ad?"+q.Encode(), map[string]string{"Origin": origin})
-		switch {
-		case err != nil:
-			r.line("fail", "tag %s: %v", tag, err)
-		case aresp.StatusCode == 200:
-			r.line("ok", "tag %s serves an ad", tag)
-		case aresp.StatusCode == 204:
-			reason := aresp.Header.Get("X-Adviverse-NoFill")
-			if reason == "" {
-				reason = "no reason header: the request was treated as invalid traffic, usually because it came from a datacenter IP; run doctor from a normal connection"
-			}
-			r.line("warn", "tag %s: no fill (%s)", tag, reason)
-		default:
-			r.line("fail", "tag %s: HTTP %d", tag, aresp.StatusCode)
-		}
+		probeFill(r, tag, serveBase+"/ad?"+q.Encode(), map[string]string{"Origin": origin})
 	}
 	if len(seen) == 0 {
 		r.line("warn", "no data-tag=\"tk_...\" placements in server HTML")
@@ -300,4 +293,23 @@ func hasAdviverseLine(body string) bool {
 		}
 	}
 	return false
+}
+
+// probeFill requests an ad for tag and reports fill, no-fill (with the engine's reason) or error.
+func probeFill(r *report, tag, u string, hdr map[string]string) {
+	aresp, _, err := get(u, hdr)
+	switch {
+	case err != nil:
+		r.line("fail", "tag %s: %v", tag, err)
+	case aresp.StatusCode == 200:
+		r.line("ok", "tag %s serves an ad", tag)
+	case aresp.StatusCode == 204:
+		reason := aresp.Header.Get("X-Adviverse-NoFill")
+		if reason == "" {
+			reason = "no reason header: the request was treated as invalid traffic, usually because it came from a datacenter IP; run doctor from a normal connection"
+		}
+		r.line("warn", "tag %s: no fill (%s)", tag, reason)
+	default:
+		r.line("fail", "tag %s: HTTP %d", tag, aresp.StatusCode)
+	}
 }

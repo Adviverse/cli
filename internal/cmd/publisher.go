@@ -95,15 +95,20 @@ func newPlacementsCmd() *cobra.Command {
 	c := &cobra.Command{Use: "placements", Short: "Manage ad placements"}
 	c.AddCommand(getCmd("list", "List placements", "/v1/publisher/placements"))
 
-	var prop, name, format string
+	var prop, app, name, format string
 	var width, height int
 	var responsive bool
 	var floor float64
 	create := callCmd("create", "Create a placement", "POST", 0, fixed("/v1/publisher/placements"), func(cmd *cobra.Command) (any, error) {
-		if prop == "" || name == "" || format == "" {
-			return nil, fmt.Errorf("--property, --name and --format are required")
+		if (prop == "") == (app == "") || name == "" || format == "" {
+			return nil, fmt.Errorf("one of --property or --app, plus --name and --format, are required")
 		}
-		b := map[string]any{"propertyId": prop, "name": name, "format": format}
+		b := map[string]any{"name": name, "format": format}
+		if app != "" {
+			b["appId"] = app
+		} else {
+			b["propertyId"] = prop
+		}
 		setIfChanged(cmd, b, "width", "width", width)
 		setIfChanged(cmd, b, "height", "height", height)
 		setIfChanged(cmd, b, "responsive", "responsive", responsive)
@@ -111,7 +116,8 @@ func newPlacementsCmd() *cobra.Command {
 		return b, nil
 	})
 	f := create.Flags()
-	f.StringVar(&prop, "property", "", "property id")
+	f.StringVar(&prop, "property", "", "property id (websites)")
+	f.StringVar(&app, "app", "", "app id (mobile/CTV; instead of --property)")
 	f.StringVar(&name, "name", "", "placement name")
 	f.StringVar(&format, "format", "", "format (banner, native, popunder, ...)")
 	f.IntVar(&width, "width", 0, "width in px")

@@ -41,6 +41,7 @@ type specProperty struct {
 
 type spec struct {
 	Properties []specProperty `yaml:"properties"`
+	Apps       []specApp      `yaml:"apps"`
 }
 
 func loadSpec(path string) (spec, error) {
@@ -64,13 +65,14 @@ func loadSpec(path string) (spec, error) {
 			}
 		}
 	}
-	return s, nil
+	return s, validateApps(path, s.Apps)
 }
 
 // ---- remote rows (snake_case DB rows from the API) ----
 
 type remoteProperty struct {
 	ID                 string `json:"id"`
+	Kind               string `json:"kind"`
 	Domain             string `json:"domain"`
 	Name               string `json:"name"`
 	VerificationMethod string `json:"verification_method"`
@@ -102,6 +104,8 @@ type remotePlacement struct {
 	Responsive   bool      `json:"responsive"`
 	FloorCpm     flexFloat `json:"floor_cpm"`
 	FrequencyCap *freqCap  `json:"frequency_cap"`
+	Status       string    `json:"status"`
+	TagKey       string    `json:"tag_key"`
 }
 
 // ---- diff ----
@@ -114,6 +118,8 @@ type change struct {
 	ID     string // remote id for update
 	Body   map[string]any
 	Notes  []string // human-readable field diffs
+	App    bool     // placement belongs to an app (Domain is the app key platform/bundle)
+	DevRef string   // app developer property domain, resolved to an id at apply time
 }
 
 func normDomain(d string) string {
@@ -164,34 +170,47 @@ func diffPlan(s spec, props []remoteProperty, pls []remotePlacement) []change {
 			}
 		}
 
-		existing := map[string]remotePlacement{}
+		ownerID := ""
 		if exists {
-			for _, pl := range pls {
-				if pl.PropertyID == rp.ID {
-					existing[pl.Name] = pl
-				}
-			}
+			ownerID = rp.ID
 		}
-		wanted := map[string]bool{}
-		for _, sp2 := range sp.Placements {
-			wanted[sp2.Name] = true
-			rpl, ok := existing[sp2.Name]
-			if !ok {
-				out = append(out, change{Action: "create", Kind: "placement", Domain: d, Name: sp2.Name, Body: placementBody(sp2)})
-				continue
-			}
-			out = append(out, diffPlacement(d, sp2, rpl)...)
-		}
-		for _, pl := range pls {
-			if exists && pl.PropertyID == rp.ID && !wanted[pl.Name] {
-				out = append(out, change{Action: "unmanaged", Kind: "placement", Domain: d, Name: pl.Name, ID: pl.ID})
-			}
-		}
+		out = append(out, diffPlacements(d, ownerID, sp.Placements, pls, false)...)
 	}
 	for _, p := range props {
 		if !managed[normDomain(p.Domain)] {
 			out = append(out, change{Action: "unmanaged", Kind: "property", Domain: normDomain(p.Domain), ID: p.ID})
 		}
+	}
+	return out
+}
+
+// diffPlacements diffs the placements wanted under one owner (property or app, keyed
+// by owner; ownerID empty when the owner is still to be created) against remote rows.
+func diffPlacements(owner, ownerID string, want []specPlacement, pls []remotePlacement, app bool) []change {
+	var out []change
+	existing := map[string]remotePlacement{}
+	for _, pl := range pls {
+		if ownerID != "" && pl.PropertyID == ownerID {
+			existing[pl.Name] = pl
+		}
+	}
+	wanted := map[string]bool{}
+	for _, sp := range want {
+		wanted[sp.Name] = true
+		rpl, ok := existing[sp.Name]
+		if !ok {
+			out = append(out, change{Action: "create", Kind: "placement", Domain: owner, Name: sp.Name, Body: placementBody(sp)})
+			continue
+		}
+		out = append(out, diffPlacement(owner, sp, rpl)...)
+	}
+	for _, pl := range pls {
+		if ownerID != "" && pl.PropertyID == ownerID && !wanted[pl.Name] {
+			out = append(out, change{Action: "unmanaged", Kind: "placement", Domain: owner, Name: pl.Name, ID: pl.ID})
+		}
+	}
+	for i := range out {
+		out[i].App = app
 	}
 	return out
 }
@@ -256,8 +275,8 @@ func pending(cs []change) int {
 }
 
 func label(c change) string {
-	if c.Kind == "property" {
-		return "property " + c.Domain
+	if c.Kind == "property" || c.Kind == "app" {
+		return c.Kind + " " + c.Domain
 	}
 	return "placement " + c.Domain + "/" + c.Name
 }
@@ -291,16 +310,37 @@ type ExitCodeError struct{ Code int }
 
 func (e ExitCodeError) Error() string { return fmt.Sprintf("exit %d", e.Code) }
 
-func fetchState() ([]remoteProperty, []remotePlacement, error) {
-	var props []remoteProperty
-	var pls []remotePlacement
-	if err := listInto("/v1/publisher/properties", &props); err != nil {
-		return nil, nil, err
+type state struct {
+	props []remoteProperty // websites only
+	apps  []remoteApp
+	pls   []remotePlacement
+}
+
+// fetchState loads remote state; apps are only fetched when the spec manages any.
+func fetchState(s spec) (state, error) {
+	var st state
+	var all []remoteProperty
+	if err := listInto("/v1/publisher/properties", &all); err != nil {
+		return st, err
 	}
-	if err := listInto("/v1/publisher/placements", &pls); err != nil {
-		return nil, nil, err
+	for _, p := range all {
+		if !isAppKind(p.Kind) {
+			st.props = append(st.props, p)
+		}
 	}
-	return props, pls, nil
+	if len(s.Apps) > 0 {
+		if err := listInto("/v1/publisher/apps", &st.apps); err != nil {
+			return st, err
+		}
+	}
+	if err := listInto("/v1/publisher/placements", &st.pls); err != nil {
+		return st, err
+	}
+	return st, nil
+}
+
+func (st state) diff(s spec) []change {
+	return append(diffPlan(s, st.props, st.pls), diffApps(s, st.apps, st.props, st.pls)...)
 }
 
 func newPlanCmd() *cobra.Command {
@@ -313,11 +353,11 @@ func newPlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			props, pls, err := fetchState()
+			st, err := fetchState(s)
 			if err != nil {
 				return err
 			}
-			cs := diffPlan(s, props, pls)
+			cs := st.diff(s)
 			printPlan(cmd, cs)
 			if exitCode && pending(cs) > 0 {
 				cmd.SilenceErrors = true
@@ -334,38 +374,59 @@ func newPlanCmd() *cobra.Command {
 func newApplyCmd() *cobra.Command {
 	var file string
 	c := &cobra.Command{
-		Use: "apply", Short: "Create/update properties and placements from adviverse.yaml (never deletes)", Args: cobra.NoArgs,
+		Use: "apply", Short: "Create/update properties, apps and placements from adviverse.yaml (never deletes)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, err := loadSpec(file)
 			if err != nil {
 				return err
 			}
-			props, pls, err := fetchState()
+			st, err := fetchState(s)
 			if err != nil {
 				return err
 			}
-			cs := diffPlan(s, props, pls)
+			cs := st.diff(s)
 			printPlan(cmd, cs)
 			cl, err := newClient()
 			if err != nil {
 				return err
 			}
 			ids := map[string]string{}
-			for _, p := range props {
+			for _, p := range st.props {
 				ids[normDomain(p.Domain)] = p.ID
 			}
+			for _, a := range st.apps {
+				ids[appKey(a.Platform, a.BundleID)] = a.ID
+			}
 			ctx := context.Background()
-			// Property changes precede their placements in cs, so new ids are known in time.
+			// Owner changes precede their placements (and properties precede apps) in cs,
+			// so new ids are known in time.
 			for _, c := range cs {
 				var path, method string
 				body := c.Body
+				if c.DevRef != "" {
+					if ids[c.DevRef] == "" {
+						return fmt.Errorf("%s: developerProperty %s is not a property on this account or in this file", label(c), c.DevRef)
+					}
+					body = map[string]any{"developerPropertyId": ids[c.DevRef]}
+					for k, v := range c.Body {
+						body[k] = v
+					}
+				}
 				switch {
+				case c.Action == "create" && c.Kind == "app":
+					method, path = "POST", "/v1/publisher/apps"
+				case c.Action == "update" && c.Kind == "app":
+					method, path = "PATCH", "/v1/publisher/apps/"+url.PathEscape(c.ID)
 				case c.Action == "create" && c.Kind == "property":
 					method, path = "POST", "/v1/publisher/properties"
 				case c.Action == "update" && c.Kind == "property":
 					method, path = "PATCH", "/v1/publisher/properties/"+url.PathEscape(c.ID)
 				case c.Action == "create" && c.Kind == "placement":
-					body = map[string]any{"propertyId": ids[c.Domain]}
+					owner := "propertyId"
+					if c.App {
+						owner = "appId"
+					}
+					body = map[string]any{owner: ids[c.Domain]}
 					for k, v := range c.Body {
 						body[k] = v
 					}
@@ -379,7 +440,7 @@ func newApplyCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("%s %s: %w", c.Action, label(c), err)
 				}
-				if c.Action == "create" && c.Kind == "property" {
+				if c.Action == "create" && (c.Kind == "property" || c.Kind == "app") {
 					var row remoteProperty
 					if err := json.Unmarshal(res, &row); err != nil || row.ID == "" {
 						return fmt.Errorf("create %s: no id in response", label(c))
