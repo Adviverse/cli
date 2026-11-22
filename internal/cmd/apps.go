@@ -9,6 +9,7 @@ import (
 
 var appPlatforms = map[string]bool{
 	"ios": true, "android": true, "roku": true, "firetv": true, "appletv": true, "androidtv": true, "web": true,
+	"chrome": true, "edge": true, "firefox": true, // browser extensions
 }
 
 // isAppKind reports whether a properties row is an app (apps share the properties table).
@@ -47,7 +48,7 @@ func newAppsCmd() *cobra.Command {
 			return nil, fmt.Errorf("--platform, --bundle and --name are required")
 		}
 		if !appPlatforms[platform] {
-			return nil, fmt.Errorf("--platform must be one of ios, android, roku, firetv, appletv, androidtv, web")
+			return nil, fmt.Errorf("--platform must be one of ios, android, roku, firetv, appletv, androidtv, web, chrome, edge, firefox")
 		}
 		if kind != "mobile_app" && kind != "ctv" {
 			return nil, fmt.Errorf("--kind must be mobile_app or ctv")
@@ -56,7 +57,7 @@ func newAppsCmd() *cobra.Command {
 		return b, appFields(cmd, b, storeURL, storeID, devProp)
 	})
 	f := create.Flags()
-	f.StringVar(&platform, "platform", "", "ios|android|roku|firetv|appletv|androidtv|web")
+	f.StringVar(&platform, "platform", "", "ios|android|roku|firetv|appletv|androidtv|web|chrome|edge|firefox")
 	f.StringVar(&bundle, "bundle", "", "bundle id / package name (e.g. com.acme.app)")
 	f.StringVar(&name, "name", "", "display name")
 	f.StringVar(&kind, "kind", "mobile_app", "mobile_app|ctv")
